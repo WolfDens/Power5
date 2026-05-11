@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import TodayScreen from "./screens/TodayScreen";
 import ScoreboardScreen from "./screens/ScoreboardScreen";
 import HabitsScreen from "./screens/HabitsScreen";
@@ -24,8 +24,21 @@ function defaultState() {
   return { tasks: [], history: [], dayGenerated: null, dayLocked: false, aiInsight: null };
 }
 
+function mergeStates(local, remote) {
+  const histMap = {};
+  for (const h of (local.history || [])) histMap[h.date] = h;
+  for (const h of (remote.history || [])) histMap[h.date] = h;
+  const history = Object.values(histMap).sort((a, b) => b.date.localeCompare(a.date));
+  const useRemote = (remote.dayGenerated || "") >= (local.dayGenerated || "");
+  return { ...(useRemote ? remote : local), history };
+}
+
 export default function App() {
   const [screen, setScreen] = useState("today");
+  const [syncStatus, setSyncStatus] = useState("idle");
+  const [digestReady, setDigestReady] = useState(false);
+  const pushTimer = useRef(null);
+
   const [state, setState] = useState(() => {
     try {
       const raw = localStorage.getItem("p5state");
@@ -33,10 +46,7 @@ export default function App() {
     } catch (e) {}
     return defaultState();
   });
-  const [syncStatus, setSyncStatus] = useState("idle");
-  const [digestReady, setDigestReady] = useState(false);
 
-  // Load from KV on mount
   useEffect(() => {
     setSyncStatus("syncing");
     fetch("/api/state")
@@ -53,23 +63,47 @@ export default function App() {
       })
       .catch(() => setSyncStatus("idle"));
 
-    // Check if Cowork digest is ready
     fetch("/api/digest-status")
       .then(r => r.json())
       .then(({ available }) => setDigestReady(available))
       .catch(() => {});
   }, []);
 
-  const updateState = useCallback((patch, sync = false) => {
+  function schedulePush(nextState) {
+    if (pushTimer.current) clearTimeout(pushTimer.current);
+    pushTimer.current = setTimeout(() => {
+      setSyncStatus("syncing");
+      fetch("/api/state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: nextState }),
+      })
+        .then(() => {
+          setSyncStatus("synced");
+          setTimeout(() => setSyncStatus("idle"), 2000);
+        })
+        .catch(() => setSyncStatus("idle"));
+    }, 1500);
+  }
+
+  const updateState = useCallback((patch, immediate = false) => {
     setState(prev => {
       const next = { ...prev, ...patch };
       localStorage.setItem("p5state", JSON.stringify(next));
-      if (sync) {
+      if (immediate) {
+        setSyncStatus("syncing");
         fetch("/api/state", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ data: next }),
-        }).catch(() => {});
+        })
+          .then(() => {
+            setSyncStatus("synced");
+            setTimeout(() => setSyncStatus("idle"), 2000);
+          })
+          .catch(() => setSyncStatus("idle"));
+      } else {
+        schedulePush(next);
       }
       return next;
     });
@@ -123,13 +157,4 @@ export default function App() {
       {screen === "habits" && <HabitsScreen state={state} />}
     </div>
   );
-}
-
-function mergeStates(local, remote) {
-  const histMap = {};
-  for (const h of (local.history || [])) histMap[h.date] = h;
-  for (const h of (remote.history || [])) histMap[h.date] = h;
-  const history = Object.values(histMap).sort((a, b) => b.date.localeCompare(a.date));
-  const useRemote = (remote.dayGenerated || "") >= (local.dayGenerated || "");
-  return { ...(useRemote ? remote : local), history };
 }

@@ -1,18 +1,70 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
-export default function ScoreboardScreen({ state }) {
+export default function ScoreboardScreen({ state, updateState }) {
   const [filter, setFilter] = useState("week");
+  const [editingDate, setEditingDate] = useState(null);
+  const [editDateVal, setEditDateVal] = useState("");
+  const [lastRefresh, setLastRefresh] = useState(Date.now());
+
+  // Refresh scoreboard every 60 seconds
+  useEffect(() => {
+    const interval = setInterval(() => setLastRefresh(Date.now()), 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   const hist = getFiltered(state.history || [], filter);
+  const allHist = state.history || [];
 
   const totalTasks = hist.reduce((s, h) => s + h.tasks.length, 0);
   const doneTasks = hist.reduce((s, h) => s + h.tasks.filter(t => t.done).length, 0);
   const perfectDays = hist.filter(h => h.tasks.length > 0 && h.tasks.every(t => t.done)).length;
-  const streak = calcStreak(state.history || []);
+  const streak = calcStreak(allHist);
   const pct = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+
+  // Lifetime stats
+  const lifetimeDone = allHist.reduce((s, h) => s + h.tasks.filter(t => t.done).length, 0);
+  const lifetimePerfect = allHist.filter(h => h.tasks.length > 0 && h.tasks.every(t => t.done)).length;
+
   const dayBuckets = buildDayBuckets(hist);
+
+  function startEditDate(h) {
+    setEditingDate(h.date);
+    setEditDateVal(h.date);
+  }
+
+  function saveEditDate(oldDate) {
+    if (!editDateVal || editDateVal === oldDate) { setEditingDate(null); return; }
+    const history = (state.history || []).map(h =>
+      h.date === oldDate ? { ...h, date: editDateVal } : h
+    );
+    // Dedup — if new date already exists, merge (new overwrites old)
+    const histMap = {};
+    for (const h of history) histMap[h.date] = h;
+    const merged = Object.values(histMap).sort((a, b) => b.date.localeCompare(a.date));
+    updateState({ history: merged }, true);
+    setEditingDate(null);
+  }
 
   return (
     <div className="screen">
+      {/* Lifetime banner */}
+      <div className="lifetime-banner">
+        <div className="lifetime-item">
+          <div className="lifetime-val">{lifetimeDone}</div>
+          <div className="lifetime-lbl">Lifetime tasks completed</div>
+        </div>
+        <div className="lifetime-divider" />
+        <div className="lifetime-item">
+          <div className="lifetime-val">{lifetimePerfect}</div>
+          <div className="lifetime-lbl">Perfect days ever</div>
+        </div>
+        <div className="lifetime-divider" />
+        <div className="lifetime-item">
+          <div className="lifetime-val">{streak}</div>
+          <div className="lifetime-lbl">Current streak</div>
+        </div>
+      </div>
+
       <div className="filter-row">
         {["week", "month", "year", "all"].map(f => (
           <button key={f} className={`filter-btn${filter === f ? " active" : ""}`} onClick={() => setFilter(f)}>
@@ -26,7 +78,7 @@ export default function ScoreboardScreen({ state }) {
           { val: doneTasks, lbl: "Tasks done" },
           { val: pct + "%", lbl: "Completion" },
           { val: perfectDays, lbl: "Perfect days" },
-          { val: streak, lbl: "Streak" },
+          { val: allHist.length, lbl: "Days tracked" },
         ].map(m => (
           <div className="metric-card" key={m.lbl}>
             <div className="metric-val">{m.val}</div>
@@ -46,7 +98,10 @@ export default function ScoreboardScreen({ state }) {
         ))}
       </div>
 
-      <div className="section-label" style={{ marginTop: "1.5rem" }}>Recent days</div>
+      <div className="section-label" style={{ marginTop: "1.5rem" }}>
+        Recent days
+        <span className="live-dot" title="Updates every 60s" />
+      </div>
       {hist.length === 0 ? (
         <div className="empty-state small">
           <i className="ti ti-history" aria-hidden="true" />
@@ -61,9 +116,21 @@ export default function ScoreboardScreen({ state }) {
             return (
               <div className="history-day" key={h.date}>
                 <div className="history-header">
-                  <div className="history-date">
-                    {new Date(h.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-                  </div>
+                  {editingDate === h.date ? (
+                    <div className="date-edit-row">
+                      <input type="date" className="date-input" value={editDateVal}
+                        onChange={e => setEditDateVal(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") saveEditDate(h.date); if (e.key === "Escape") setEditingDate(null); }}
+                        autoFocus />
+                      <button className="icon-btn save-btn" onClick={() => saveEditDate(h.date)}><i className="ti ti-check" aria-hidden="true" /></button>
+                      <button className="icon-btn cancel-btn" onClick={() => setEditingDate(null)}><i className="ti ti-x" aria-hidden="true" /></button>
+                    </div>
+                  ) : (
+                    <div className="history-date" onClick={() => startEditDate(h)} title="Tap to edit date" style={{ cursor: "pointer" }}>
+                      {new Date(h.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                      <i className="ti ti-pencil" style={{ fontSize: 10, opacity: 0.35, marginLeft: 5 }} aria-hidden="true" />
+                    </div>
+                  )}
                   <div className="history-score">
                     <div className="score-dot" style={{ background: perfect ? "#639922" : d > 0 ? "#185FA5" : "#888780" }} />
                     <span>{d}/{tot}{perfect ? " — perfect" : ""}</span>

@@ -1,9 +1,8 @@
 import { useState } from "react";
+
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 
-
-
-export default function TodayScreen({ state, updateState, digestReady, currentDate }) {
+export default function TodayScreen({ state, updateState, digestReady: initialDigestReady, currentDate }) {
   const [phase, setPhase] = useState("idle");
   const [manualInput, setManualInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -16,12 +15,28 @@ export default function TodayScreen({ state, updateState, digestReady, currentDa
   const [addingTask, setAddingTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [hopperInput, setHopperInput] = useState("");
+  const [digestReady, setDigestReady] = useState(initialDigestReady);
+  const [checkingDigest, setCheckingDigest] = useState(false);
   const dragItem = { current: null };
 
   const hasTasks = state.tasks.length > 0;
   const rolledTasks = state.tasks.filter(t => t.rolled);
   const streak = calcStreak(state.history);
   const hopper = state.hopper || [];
+
+  async function pullLatestDigest() {
+    setCheckingDigest(true);
+    try {
+      const res = await fetch("/api/digest-status");
+      const data = await res.json();
+      setDigestReady(data.available);
+      if (!data.available) setError("No digest found for today yet. Check back after 4:30am.");
+      else setError(null);
+    } catch (e) {
+      setError("Could not check digest status.");
+    }
+    setCheckingDigest(false);
+  }
 
   async function generate() {
     setLoading(true);
@@ -103,10 +118,7 @@ export default function TodayScreen({ state, updateState, digestReady, currentDa
     };
     const history = [entry, ...(state.history || []).filter(h => h.date !== today)];
     const incomplete = state.tasks.filter(t => !t.done);
-    updateState({
-      history, dayLocked: true,
-      tasks: incomplete.map(t => ({ ...t, rolled: true })),
-    }, true);
+    updateState({ history, dayLocked: true, tasks: incomplete.map(t => ({ ...t, rolled: true })) }, true);
     setEndDayOpen(false);
     setPhase("idle");
   }
@@ -130,23 +142,10 @@ export default function TodayScreen({ state, updateState, digestReady, currentDa
             <i className="ti ti-lock" aria-hidden="true" />
             Day locked{lockedDay.autoEnded ? " (auto)" : ""} — {lockedDay.tasks.filter(t => t.done).length}/{lockedDay.tasks.length} complete
           </div>
-          <div className="task-list">
-            {lockedDay.tasks.map((t, i) => (
-              <div key={i} className={`task-card locked${t.done ? " done" : ""}`}>
-                <div className="task-num">{i + 1}</div>
-                <div className={`task-check${t.done ? " checked" : ""}`}>
-                  {t.done && <i className="ti ti-check" style={{ fontSize: 12, color: "#fff" }} aria-hidden="true" />}
-                </div>
-                <div className="task-body">
-                  <div className="task-title">{t.title}</div>
-                  <div className="task-meta">
-                    <span className="source-tag"><i className={`ti ti-${t.sourceIcon || "mail"}`} style={{ fontSize: 11 }} aria-hidden="true" /> {t.source}</span>
-                  </div>
-                </div>
-                <div className={`priority-dot p-${t.priority}`} />
-              </div>
-            ))}
-          </div>
+          <TaskList tasks={lockedDay.tasks} onToggle={() => {}} locked={true}
+            editingId={null} onEdit={() => {}} onSaveEdit={() => {}} onCancelEdit={() => {}} editValue=""
+            onRemove={() => {}} dragIdx={null} dragOverIdx={null}
+            onDragStart={() => {}} onDragEnter={() => {}} onDragEnd={() => {}} />
         </>
       )}
 
@@ -155,8 +154,15 @@ export default function TodayScreen({ state, updateState, digestReady, currentDa
         <div className="empty-state">
           <i className="ti ti-list-check" aria-hidden="true" />
           <p>Ready to build your Power 5</p>
-          {digestReady && <div className="digest-ready-pill"><i className="ti ti-bolt" aria-hidden="true" /> Cowork digest ready</div>}
-          <button className="btn-primary" onClick={() => setPhase("prompt")}>
+          {digestReady ? (
+            <div className="digest-ready-pill"><i className="ti ti-bolt" aria-hidden="true" /> Cowork digest ready</div>
+          ) : (
+            <button className="pull-digest-btn" onClick={pullLatestDigest} disabled={checkingDigest}>
+              <i className={`ti ${checkingDigest ? "ti-refresh" : "ti-download"}`} aria-hidden="true" />
+              {checkingDigest ? "Checking..." : "Pull latest digest"}
+            </button>
+          )}
+          <button className="btn-primary" style={{ marginTop: "1rem" }} onClick={() => setPhase("prompt")}>
             <i className="ti ti-sparkles" aria-hidden="true" /> Let's go
           </button>
         </div>
@@ -168,51 +174,24 @@ export default function TodayScreen({ state, updateState, digestReady, currentDa
           {rolledTasks.length > 0 && (
             <div className="rolled-notice"><i className="ti ti-refresh" aria-hidden="true" /> {rolledTasks.length} task{rolledTasks.length > 1 ? "s" : ""} rolled from yesterday</div>
           )}
+          {!digestReady && (
+            <button className="pull-digest-btn inline" onClick={pullLatestDigest} disabled={checkingDigest}>
+              <i className={`ti ${checkingDigest ? "ti-refresh" : "ti-download"}`} aria-hidden="true" />
+              {checkingDigest ? "Checking..." : "Pull latest digest"}
+            </button>
+          )}
+          {digestReady && (
+            <div className="digest-ready-pill small"><i className="ti ti-bolt" aria-hidden="true" /> Digest ready</div>
+          )}
           {state.aiInsight && (
             <div className="ai-insight"><i className="ti ti-sparkles" style={{ fontSize: 13, marginRight: 6 }} aria-hidden="true" />{state.aiInsight}</div>
           )}
-          <div className="task-list">
-            {state.tasks.map((t, i) => (
-              <div
-                key={t.id}
-                className={`task-card${t.done ? " done" : ""}${dragIdx === i ? " dragging" : ""}${dragOverIdx === i && dragIdx !== i ? " drag-over" : ""}`}
-                draggable onDragStart={() => onDragStart(i)} onDragEnter={() => onDragEnter(i)}
-                onDragEnd={onDragEnd} onDragOver={e => e.preventDefault()}
-              >
-                <div className="drag-handle"><i className="ti ti-grip-vertical" /></div>
-                <div className="task-num">{i + 1}</div>
-                <div className={`task-check${t.done ? " checked" : ""}`} onClick={() => toggleTask(t.id)}>
-                  {t.done && <i className="ti ti-check" style={{ fontSize: 12, color: "#fff" }} aria-hidden="true" />}
-                </div>
-                <div className="task-body">
-                  {editingId === t.id ? (
-                    <div className="edit-row">
-                      <input className="edit-input" value={editValue} onChange={e => setEditValue(e.target.value)}
-                        onKeyDown={e => { if (e.key === "Enter") saveEdit(t.id); if (e.key === "Escape") setEditingId(null); }} autoFocus />
-                      <button className="icon-btn save-btn" onClick={() => saveEdit(t.id)}><i className="ti ti-check" aria-hidden="true" /></button>
-                      <button className="icon-btn cancel-btn" onClick={() => setEditingId(null)}><i className="ti ti-x" aria-hidden="true" /></button>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="task-title" onClick={() => toggleTask(t.id)}>{t.title}</div>
-                      <div className="task-meta">
-                        <span className="source-tag"><i className={`ti ti-${t.sourceIcon || "mail"}`} style={{ fontSize: 11 }} aria-hidden="true" />{t.source}</span>
-                        {t.rolled && <span className="rolled-tag">Rolled</span>}
-                        {t.source === "Hopper" && <span className="hopper-tag">Hopper</span>}
-                      </div>
-                    </>
-                  )}
-                </div>
-                {editingId !== t.id && (
-                  <div className="task-actions">
-                    <button className="icon-btn edit-btn" onClick={() => startEdit(t)}><i className="ti ti-pencil" aria-hidden="true" /></button>
-                    <button className="icon-btn delete-btn" onClick={() => removeTask(t.id)}><i className="ti ti-trash" aria-hidden="true" /></button>
-                  </div>
-                )}
-                <div className={`priority-dot p-${t.priority}`} />
-              </div>
-            ))}
-          </div>
+          <TaskList tasks={state.tasks} onToggle={toggleTask} locked={false}
+            editingId={editingId} onEdit={startEdit} onSaveEdit={saveEdit}
+            onCancelEdit={() => setEditingId(null)} editValue={editValue}
+            setEditValue={setEditValue} onRemove={removeTask}
+            dragIdx={dragIdx} dragOverIdx={dragOverIdx}
+            onDragStart={onDragStart} onDragEnter={onDragEnter} onDragEnd={onDragEnd} />
 
           {state.tasks.length < 5 && (
             addingTask ? (
@@ -229,7 +208,6 @@ export default function TodayScreen({ state, updateState, digestReady, currentDa
               </button>
             )
           )}
-
           <div className="action-row">
             <button className="btn-outline" onClick={() => setPhase("prompt")}><i className="ti ti-sparkles" aria-hidden="true" /> Regenerate</button>
             <button className="btn-primary" onClick={() => setEndDayOpen(true)}><i className="ti ti-moon" aria-hidden="true" /> End day</button>
@@ -246,7 +224,13 @@ export default function TodayScreen({ state, updateState, digestReady, currentDa
               <div><div className="digest-ready-title">Cowork digest ready</div><div className="digest-ready-sub">Your 4:30am email digest is loaded.</div></div>
             </div>
           ) : (
-            <div className="no-digest-banner"><i className="ti ti-mail-off" aria-hidden="true" /> No digest today — generating from your priorities</div>
+            <div className="no-digest-banner">
+              <i className="ti ti-mail-off" aria-hidden="true" />
+              <div style={{ flex: 1 }}>No digest for today</div>
+              <button className="pull-digest-btn-sm" onClick={pullLatestDigest} disabled={checkingDigest}>
+                {checkingDigest ? "Checking..." : "Pull digest"}
+              </button>
+            </div>
           )}
           <div className="prompt-divider" />
           <div className="prompt-section-label">Anything else on your mind? <span className="optional-tag">optional</span></div>
@@ -276,31 +260,12 @@ export default function TodayScreen({ state, updateState, digestReady, currentDa
       {phase === "done" && !state.dayLocked && (
         <>
           {state.aiInsight && <div className="ai-insight"><i className="ti ti-sparkles" style={{ fontSize: 13, marginRight: 6 }} aria-hidden="true" />{state.aiInsight}</div>}
-          <div className="task-list">
-            {state.tasks.map((t, i) => (
-              <div key={t.id} className={`task-card${t.done ? " done" : ""}`}
-                draggable onDragStart={() => onDragStart(i)} onDragEnter={() => onDragEnter(i)}
-                onDragEnd={onDragEnd} onDragOver={e => e.preventDefault()}>
-                <div className="drag-handle"><i className="ti ti-grip-vertical" /></div>
-                <div className="task-num">{i + 1}</div>
-                <div className={`task-check${t.done ? " checked" : ""}`} onClick={() => toggleTask(t.id)}>
-                  {t.done && <i className="ti ti-check" style={{ fontSize: 12, color: "#fff" }} aria-hidden="true" />}
-                </div>
-                <div className="task-body">
-                  <div className="task-title" onClick={() => toggleTask(t.id)}>{t.title}</div>
-                  <div className="task-meta">
-                    <span className="source-tag"><i className={`ti ti-${t.sourceIcon || "mail"}`} style={{ fontSize: 11 }} aria-hidden="true" />{t.source}</span>
-                    {t.source === "Hopper" && <span className="hopper-tag">Hopper</span>}
-                  </div>
-                </div>
-                <div className="task-actions">
-                  <button className="icon-btn edit-btn" onClick={() => startEdit(t)}><i className="ti ti-pencil" aria-hidden="true" /></button>
-                  <button className="icon-btn delete-btn" onClick={() => removeTask(t.id)}><i className="ti ti-trash" aria-hidden="true" /></button>
-                </div>
-                <div className={`priority-dot p-${t.priority}`} />
-              </div>
-            ))}
-          </div>
+          <TaskList tasks={state.tasks} onToggle={toggleTask} locked={false}
+            editingId={editingId} onEdit={startEdit} onSaveEdit={saveEdit}
+            onCancelEdit={() => setEditingId(null)} editValue={editValue}
+            setEditValue={setEditValue} onRemove={removeTask}
+            dragIdx={dragIdx} dragOverIdx={dragOverIdx}
+            onDragStart={onDragStart} onDragEnter={onDragEnter} onDragEnd={onDragEnd} />
           <div className="action-row">
             <button className="btn-outline" onClick={() => setPhase("prompt")}><i className="ti ti-sparkles" aria-hidden="true" /> Regenerate</button>
             <button className="btn-primary" onClick={() => setEndDayOpen(true)}><i className="ti ti-moon" aria-hidden="true" /> End day</button>
@@ -310,7 +275,7 @@ export default function TodayScreen({ state, updateState, digestReady, currentDa
 
       {error && <div className="error-banner"><i className="ti ti-alert-triangle" aria-hidden="true" /> {error}</div>}
 
-      {/* Hopper section */}
+      {/* Hopper */}
       {!state.dayLocked && (
         <div className="hopper-section">
           <div className="hopper-header">
@@ -328,13 +293,9 @@ export default function TodayScreen({ state, updateState, digestReady, currentDa
             ))}
           </div>
           <div className="hopper-input-row">
-            <input
-              className="edit-input"
-              placeholder="Jot down an idea..."
-              value={hopperInput}
+            <input className="edit-input" placeholder="Jot down an idea..." value={hopperInput}
               onChange={e => setHopperInput(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") addToHopper(); }}
-            />
+              onKeyDown={e => { if (e.key === "Enter") addToHopper(); }} />
             <button className="icon-btn save-btn" onClick={addToHopper} disabled={!hopperInput.trim()}>
               <i className="ti ti-plus" aria-hidden="true" />
             </button>
@@ -343,6 +304,52 @@ export default function TodayScreen({ state, updateState, digestReady, currentDa
       )}
 
       {endDayOpen && <EndDayModal tasks={state.tasks} onConfirm={confirmEndDay} onCancel={() => setEndDayOpen(false)} />}
+    </div>
+  );
+}
+
+function TaskList({ tasks, onToggle, locked, editingId, onEdit, onSaveEdit, onCancelEdit, editValue, setEditValue, onRemove, dragIdx, dragOverIdx, onDragStart, onDragEnter, onDragEnd }) {
+  return (
+    <div className="task-list">
+      {tasks.map((t, i) => (
+        <div key={t.id || i}
+          className={`task-card${t.done ? " done" : ""}${locked ? " locked" : ""}${dragIdx === i ? " dragging" : ""}${dragOverIdx === i && dragIdx !== i ? " drag-over" : ""}`}
+          draggable={!locked} onDragStart={() => !locked && onDragStart(i)}
+          onDragEnter={() => !locked && onDragEnter(i)} onDragEnd={onDragEnd}
+          onDragOver={e => e.preventDefault()}>
+          {!locked && <div className="drag-handle"><i className="ti ti-grip-vertical" /></div>}
+          <div className="task-num">{i + 1}</div>
+          <div className={`task-check${t.done ? " checked" : ""}`} onClick={() => !locked && onToggle(t.id)}>
+            {t.done && <i className="ti ti-check" style={{ fontSize: 12, color: "#fff" }} aria-hidden="true" />}
+          </div>
+          <div className="task-body">
+            {editingId === t.id ? (
+              <div className="edit-row">
+                <input className="edit-input" value={editValue} onChange={e => setEditValue(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") onSaveEdit(t.id); if (e.key === "Escape") onCancelEdit(); }} autoFocus />
+                <button className="icon-btn save-btn" onClick={() => onSaveEdit(t.id)}><i className="ti ti-check" aria-hidden="true" /></button>
+                <button className="icon-btn cancel-btn" onClick={onCancelEdit}><i className="ti ti-x" aria-hidden="true" /></button>
+              </div>
+            ) : (
+              <>
+                <div className="task-title" onClick={() => !locked && onToggle(t.id)}>{t.title}</div>
+                <div className="task-meta">
+                  <span className="source-tag"><i className={`ti ti-${t.sourceIcon || "mail"}`} style={{ fontSize: 11 }} aria-hidden="true" />{t.source}</span>
+                  {t.rolled && <span className="rolled-tag">Rolled</span>}
+                  {t.source === "Hopper" && <span className="hopper-tag">Hopper</span>}
+                </div>
+              </>
+            )}
+          </div>
+          {!locked && editingId !== t.id && (
+            <div className="task-actions">
+              <button className="icon-btn edit-btn" onClick={() => onEdit(t)}><i className="ti ti-pencil" aria-hidden="true" /></button>
+              <button className="icon-btn delete-btn" onClick={() => onRemove(t.id)}><i className="ti ti-trash" aria-hidden="true" /></button>
+            </div>
+          )}
+          <div className={`priority-dot p-${t.priority}`} />
+        </div>
+      ))}
     </div>
   );
 }

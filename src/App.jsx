@@ -5,6 +5,7 @@ import HabitsScreen from "./screens/HabitsScreen";
 import PowerScore from "./components/PowerScore";
 import MorningQuote from "./components/MorningQuote";
 import Confetti from "./components/Confetti";
+import SetupScreen from "./screens/SetupScreen";
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 
@@ -34,6 +35,7 @@ function mergeStates(local, remote) {
 
 export default function App() {
   const [screen, setScreen] = useState("today");
+  const [hasKey, setHasKey] = useState(() => !!localStorage.getItem("power5_api_key"));
   const [syncStatus, setSyncStatus] = useState("idle");
   const [digestReady, setDigestReady] = useState(false);
   const [currentDate, setCurrentDate] = useState(todayStr());
@@ -139,6 +141,8 @@ export default function App() {
       return next;
     });
   }
+
+  if (!hasKey) return <SetupScreen onComplete={() => setHasKey(true)} />;
 
   const dateLabel = new Date(currentDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 

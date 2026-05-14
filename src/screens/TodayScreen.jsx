@@ -46,7 +46,7 @@ export default function TodayScreen({ state, updateState, digestReady: initialDi
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ manualInput, rolledTasks: rolled, hopper }),
+        body: JSON.stringify({ manualInput, rolledTasks: rolled, hopper, clientApiKey: localStorage.getItem("power5_api_key") || "" }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Generation failed");

@@ -1,85 +1,39 @@
-# Power5 — Setup Guide
+# POWER5
 
-## What you need
-1. Vercel account (free) — you already have this
-2. Anthropic API key — you already have this
-3. A webhook secret — just make one up (e.g. "tideandtimber2025")
+Your AI-powered daily priority system — connects to Gmail, generates your top 5 tasks each morning, tracks your performance over time.
 
----
-
-## Step 1 — Push to GitHub
-
-Unzip this folder, push it to your GitHub repo (same as before).
-Make sure Vercel root directory is set to `power5`.
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/WolfDens/Power5&project-name=power5&repository-name=power5)
 
 ---
 
-## Step 2 — Enable Vercel KV (2 minutes)
+## Quick start
 
-1. Go to vercel.com → your Power5 project
-2. Click **Storage** tab
-3. Click **Create Database** → choose **KV**
-4. Name it `power5-kv` → click Create
-5. Click **Connect to Project** → select your Power5 project
+1. Click **Deploy with Vercel** above — forks the repo and deploys in ~60 seconds
+2. In Vercel → your project → **Storage** → connect an **Upstash Redis** database
+3. Open your deployed app URL — the setup wizard walks you through the rest
 
-Vercel automatically adds the KV environment variables. Done.
+That's it. The app handles API key entry and onboarding in-browser.
 
 ---
 
-## Step 3 — Add environment variables
+## Full setup guide
 
-In Vercel → your project → **Settings** → **Environment Variables**, add:
-
-| Name | Value |
-|------|-------|
-| `ANTHROPIC_API_KEY` | Your Anthropic API key (sk-ant-...) |
-| `WEBHOOK_SECRET` | Make up a password, e.g. `tideandtimber2025` |
-
-Click Save, then redeploy.
+For the complete step-by-step walkthrough including the morning email digest setup, see [SETUP.md](./SETUP.md).
 
 ---
 
-## Step 4 — Connect Cowork (the magic part)
+## How it works
 
-Add this as the final step in your Cowork morning digest task instructions:
+- A Claude Code routine runs at 4:30am, reads your Gmail, and POSTs a digest to your app
+- When you open the app, your digest is ready — one tap generates your Power 5
+- Check off tasks throughout the day — syncs across phone and computer
+- End Day locks the list, rolls incomplete tasks, updates your Power Score
+- Habits screen surfaces patterns in your behavior over time
 
-```
-After creating/updating the digest artifact, send the digest content to the Power5 app 
-via a POST request:
+## Stack
 
-URL: https://power5.vercel.app/api/digest
-Method: POST
-Headers: Content-Type: application/json
-Body: {
-  "secret": "tideandtimber2025",
-  "digest": "<the full text content of the digest artifact>"
-}
-
-This stores the digest for Brian's Power5 app to read automatically when he opens it.
-```
-
-Replace `tideandtimber2025` with whatever you set as WEBHOOK_SECRET.
-Replace `power5.vercel.app` with your actual Vercel URL.
-
----
-
-## How it works after setup
-
-- **4:30am** — Cowork runs, builds digest, POSTs it to /api/digest, stored automatically
-- **When you open the app** — sees "Cowork digest ready", one tap to generate
-- **Generation** — reads the digest from storage, calls Claude, returns your Power 5 in ~3 seconds
-- **End Day** — locks the day, rolls incomplete tasks, syncs to KV
-- **Any device** — phone, computer, same data from KV
-
----
-
-## Adding phone to home screen
-
-**iPhone (Safari):**
-1. Open your app URL in Safari
-2. Share button → Add to Home Screen
-3. Name it Power5 → Add
-
-**Android (Chrome):**
-1. Open URL in Chrome
-2. Three-dot menu → Add to Home Screen
+- **Frontend:** React + Vite, deployed on Vercel
+- **API:** Vercel serverless functions
+- **Storage:** Upstash Redis (task history, digest cache)
+- **AI:** Anthropic Claude (Haiku for generation)
+- **Digest:** Claude Code scheduled routine via Gmail MCP

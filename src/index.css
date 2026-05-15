@@ -567,3 +567,35 @@ body {
 .setup-btn-row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 1.25rem; }
 .full-width { width: 100%; }
 .mt-1 { margin-top: 1rem; }
+
+/* ── Hopper drawer ── */
+.hopper-browse-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: none; border: 0.5px solid var(--border-md);
+  border-radius: var(--radius-sm); padding: 3px 9px;
+  font-size: 10px; color: var(--text-tertiary); cursor: pointer;
+  font-family: inherit; margin-left: auto; transition: all 0.15s;
+}
+.hopper-browse-btn:hover { border-color: var(--gold); color: var(--gold); background: var(--gold-dim); }
+
+.hopper-hidden-msg { font-size: 12px; color: var(--text-tertiary); font-style: italic; padding: 4px 0; }
+
+.hopper-drawer-list { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; }
+.hopper-drawer-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: linear-gradient(160deg, #131820, #0c1018);
+  border: 0.5px solid var(--border-md); border-top-color: var(--border-highlight);
+  border-radius: var(--radius-sm); padding: 11px 13px;
+  font-size: 13px; color: var(--text-primary); cursor: pointer;
+  transition: all 0.15s;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3), inset 0 1px 0 rgba(200,220,255,0.03);
+}
+.hopper-drawer-item:hover {
+  border-color: var(--gold); background: var(--gold-dim);
+  box-shadow: 0 0 12px rgba(176,125,53,0.1);
+}
+
+/* ── Per-task regen button ── */
+.regen-btn { color: var(--text-tertiary); }
+.regen-btn:hover { color: var(--gold); background: var(--gold-dim); }
+.regen-btn:disabled { opacity: 0.4; pointer-events: none; }

@@ -6,14 +6,19 @@ import PowerScore from "./components/PowerScore";
 import MorningQuote from "./components/MorningQuote";
 import Confetti from "./components/Confetti";
 import SetupScreen from "./screens/SetupScreen";
-
-function todayStr() { return new Date().toISOString().slice(0, 10); }
+import { getNYDateStr, getMsUntilNYMidnight, formatNYDate } from "./utils/time";
 
 function rollTasks(s, targetDate) {
-  const day = targetDate || todayStr();
+  const day = targetDate || getNYDateStr();
   if (s.dayGenerated === day) return s;
   const incomplete = (s.tasks || []).filter(t => !t.done);
-  return { ...s, tasks: incomplete.map(t => ({ ...t, rolled: true })), dayGenerated: day, dayLocked: false, aiInsight: null };
+  return {
+    ...s,
+    tasks: incomplete.map(t => ({ ...t, rolled: true })),
+    dayGenerated: day,
+    dayLocked: false,
+    aiInsight: null,
+  };
 }
 
 function defaultState() {
@@ -28,18 +33,18 @@ function mergeStates(local, remote) {
   const useRemote = (remote.dayGenerated || "") >= (local.dayGenerated || "");
   const base = useRemote ? remote : local;
   const hopperMap = {};
-  for (const h of (local.hopper || [])) hopperMap[h.text] = h;
-  for (const h of (remote.hopper || [])) hopperMap[h.text] = h;
+  for (const h of (local.hopper || [])) hopperMap[h.id] = h;
+  for (const h of (remote.hopper || [])) hopperMap[h.id] = h;
   return { ...base, history, hopper: Object.values(hopperMap) };
 }
 
 export default function App() {
   const [screen, setScreen] = useState("today");
-  const [hasKey, setHasKey] = useState(() => !!localStorage.getItem("power5_api_key"));
   const [syncStatus, setSyncStatus] = useState("idle");
   const [digestReady, setDigestReady] = useState(false);
-  const [currentDate, setCurrentDate] = useState(todayStr());
+  const [currentDate, setCurrentDate] = useState(getNYDateStr());
   const [confetti, setConfetti] = useState(false);
+  const [hasKey, setHasKey] = useState(() => !!localStorage.getItem("power5_api_key"));
   const pushTimer = useRef(null);
   const autoEndTimer = useRef(null);
 
@@ -73,26 +78,37 @@ export default function App() {
       .catch(() => {});
   }, []);
 
-  // Auto end day at 11:59pm
+  // Auto end day at 11:59pm EST
   useEffect(() => {
-    const now = new Date();
-    const endOfDay = new Date();
-    endOfDay.setHours(23, 59, 0, 0);
-    const msUntil = endOfDay - now;
-    if (msUntil > 0) {
+    const ms = getMsUntilNYMidnight();
+    if (ms > 0) {
       autoEndTimer.current = setTimeout(() => {
         setState(prev => {
           if (prev.dayLocked) return prev;
-          const today = todayStr();
-          const entry = { date: today, tasks: prev.tasks.map(t => ({ title: t.title, done: t.done, source: t.source, priority: t.priority, rolled: !!t.rolled })), autoEnded: true };
+          const today = getNYDateStr();
+          const entry = {
+            date: today,
+            tasks: prev.tasks.map(t => ({
+              title: t.title, done: t.done, source: t.source,
+              priority: t.priority, rolled: !!t.rolled,
+            })),
+            autoEnded: true,
+          };
           const history = [entry, ...(prev.history || []).filter(h => h.date !== today)];
           const incomplete = prev.tasks.filter(t => !t.done);
-          const next = { ...prev, history, dayLocked: true, tasks: incomplete.map(t => ({ ...t, rolled: true })) };
+          const next = {
+            ...prev, history, dayLocked: true,
+            tasks: incomplete.map(t => ({ ...t, rolled: true })),
+          };
           localStorage.setItem("p5state", JSON.stringify(next));
-          fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data: next }) }).catch(() => {});
+          fetch("/api/state", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ data: next }),
+          }).catch(() => {});
           return next;
         });
-      }, msUntil);
+      }, ms);
     }
     return () => { if (autoEndTimer.current) clearTimeout(autoEndTimer.current); };
   }, []);
@@ -101,7 +117,11 @@ export default function App() {
     if (pushTimer.current) clearTimeout(pushTimer.current);
     pushTimer.current = setTimeout(() => {
       setSyncStatus("syncing");
-      fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data: nextState }) })
+      fetch("/api/state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: nextState }),
+      })
         .then(() => { setSyncStatus("synced"); setTimeout(() => setSyncStatus("idle"), 2000); })
         .catch(() => setSyncStatus("idle"));
     }, 1500);
@@ -112,7 +132,6 @@ export default function App() {
       const next = { ...prev, ...patch };
       localStorage.setItem("p5state", JSON.stringify(next));
 
-      // Check for perfect day confetti
       if (patch.dayLocked && next.history?.[0]) {
         const day = next.history[0];
         if (day.tasks.length > 0 && day.tasks.every(t => t.done) && !day.autoEnded) {
@@ -123,10 +142,16 @@ export default function App() {
 
       if (immediate) {
         setSyncStatus("syncing");
-        fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data: next }) })
+        fetch("/api/state", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ data: next }),
+        })
           .then(() => { setSyncStatus("synced"); setTimeout(() => setSyncStatus("idle"), 2000); })
           .catch(() => setSyncStatus("idle"));
-      } else { schedulePush(next); }
+      } else {
+        schedulePush(next);
+      }
       return next;
     });
   }, []);
@@ -137,14 +162,18 @@ export default function App() {
       const next = rollTasks(prev, newDate);
       next.dayGenerated = newDate;
       localStorage.setItem("p5state", JSON.stringify(next));
-      fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data: next }) }).catch(() => {});
+      fetch("/api/state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: next }),
+      }).catch(() => {});
       return next;
     });
   }
 
   if (!hasKey) return <SetupScreen onComplete={() => setHasKey(true)} />;
 
-  const dateLabel = new Date(currentDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  const dateLabel = formatNYDate(currentDate);
 
   return (
     <div className="app">
@@ -183,20 +212,18 @@ export default function App() {
 function DateEditor({ dateLabel, currentDate, onDateChange }) {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(currentDate);
-
   function save() { if (val) onDateChange(val); setEditing(false); }
-
   if (editing) {
     return (
       <div className="date-edit-row">
-        <input type="date" className="date-input" value={val} onChange={e => setVal(e.target.value)}
+        <input type="date" className="date-input" value={val}
+          onChange={e => setVal(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(false); }} autoFocus />
         <button className="icon-btn save-btn" onClick={save}><i className="ti ti-check" aria-hidden="true" /></button>
         <button className="icon-btn cancel-btn" onClick={() => setEditing(false)}><i className="ti ti-x" aria-hidden="true" /></button>
       </div>
     );
   }
-
   return (
     <div className="date-sub" onClick={() => setEditing(true)} title="Tap to correct date">
       {dateLabel} <i className="ti ti-pencil" style={{ fontSize: 9, opacity: 0.3 }} aria-hidden="true" />
